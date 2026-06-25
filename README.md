@@ -24,7 +24,11 @@ Todos los puntos trazados quedan arrastrables para ajuste fino.
    - 2 puntos sobre la superficie articular distal del fémur (cóndilo medial,
      luego lateral).
    - Lo mismo para la tibia (2 círculos diafisarios + línea articular proximal).
-3. Los ángulos se calculan y muestran en vivo.
+3. Los ángulos se calculan y muestran en vivo, tanto en el panel lateral
+   como **dibujados directamente sobre la radiografía**: cada ángulo aparece
+   como un arco en su vértice correspondiente, con una etiqueta tipo
+   `LDFA = 88° (85–90°)`, igual que en los softwares de planificación
+   ortopédica.
 4. Si algún punto quedó mal ubicado, lo arrastrás directamente sobre la imagen
    y el cálculo se actualiza al instante. También podés tocar el ícono ↺ junto
    a cualquier paso para borrarlo y volver a clickearlo desde cero.
