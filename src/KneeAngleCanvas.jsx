@@ -1,6 +1,13 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { Stage, Layer, Image as KonvaImage, Circle, Line, Group } from 'react-konva';
-import { circleFrom3Points, anatomicalAxis, computeKneeAngles } from './geometry.js';
+import { Stage, Layer, Image as KonvaImage, Circle, Line, Group, Text, Rect } from 'react-konva';
+import {
+  circleFrom3Points,
+  anatomicalAxis,
+  computeKneeAngles,
+  lineIntersection,
+  angleArcPoints,
+  NORMAL_RANGES,
+} from './geometry.js';
 import { STEPS, TOTAL_STEPS } from './measurementSteps.js';
 
 const COLORS = {
@@ -157,6 +164,55 @@ export default function KneeAngleCanvas() {
     });
   }
 
+  // Radio del arco proporcional al tamaño de la imagen en pantalla, para que
+  // se vea bien tanto en radiografías grandes como chicas.
+  const arcRadius = Math.max(28, Math.min(stageSize.width, stageSize.height) * 0.06);
+
+  // Distancia máxima razonable entre el vértice calculado y los puntos clicados
+  // por el usuario; si la intersección matemática cae mucho más lejos que esto
+  // (caso patológico: eje casi paralelo a la articular), no dibujamos el arco
+  // para evitar que la etiqueta aparezca disparada en cualquier lugar de la imagen.
+  const maxVertexDistance = Math.max(stageSize.width, stageSize.height) * 1.5;
+
+  // --- Arco visual de LDFA: vértice = intersección eje femoral × línea articular femoral ---
+  let ldfaArc = null;
+  if (femurAxis && femurArticularPts.length === 2) {
+    const vertex = lineIntersection(femurAxis, femurArticularPts);
+    if (vertex && Math.hypot(vertex.x - femurAxis[1].x, vertex.y - femurAxis[1].y) < maxVertexDistance) {
+      // Rayo 1: hacia el centro del círculo distal (la diáfisis femoral, "hacia arriba")
+      // Rayo 2: hacia el punto medial de la línea articular (el lado clínicamente medido)
+      const { points, labelPoint } = angleArcPoints(vertex, femurAxis[0], femurArticularPts[0], arcRadius);
+      ldfaArc = { points, labelPoint, vertex };
+    }
+  }
+
+  // --- Arco visual de MPTA: vértice = intersección eje tibial × línea articular tibial ---
+  let mptaArc = null;
+  if (tibiaAxis && tibiaArticularPts.length === 2) {
+    const vertex = lineIntersection(tibiaAxis, tibiaArticularPts);
+    if (vertex && Math.hypot(vertex.x - tibiaAxis[1].x, vertex.y - tibiaAxis[1].y) < maxVertexDistance) {
+      const { points, labelPoint } = angleArcPoints(vertex, tibiaAxis[0], tibiaArticularPts[0], arcRadius);
+      mptaArc = { points, labelPoint, vertex };
+    }
+  }
+
+  // --- Arco visual del ángulo tibiofemoral: vértice = centro anatómico de la rodilla ---
+  // Nota: NO usamos la intersección matemática de las dos rectas infinitas, porque cuando
+  // los ejes están casi alineados (ángulo cercano a 180°, como es normal en una rodilla)
+  // esa intersección puede caer muy lejos de la rodilla real. En cambio, usamos el punto
+  // medio entre el centro del círculo femoral distal y el centro del círculo tibial proximal:
+  // ambos representan la zona articular real, que es donde clínicamente se "ve" este ángulo.
+  let tfArc = null;
+  if (femurAxis && tibiaAxis) {
+    const vertex = {
+      x: (femurAxis[1].x + tibiaAxis[1].x) / 2,
+      y: (femurAxis[1].y + tibiaAxis[1].y) / 2,
+    };
+    // Rayo 1: hacia la diáfisis femoral (arriba). Rayo 2: hacia la diáfisis tibial (abajo).
+    const { points, labelPoint } = angleArcPoints(vertex, femurAxis[0], tibiaAxis[0], arcRadius * 1.3);
+    tfArc = { points, labelPoint, vertex };
+  }
+
   // Líneas extendidas para que se vean cruzando toda la imagen (estética tipo software de planificación)
   const extendLine = (p1, p2, factor = 4) => {
     const dx = p2.x - p1.x;
@@ -271,6 +327,61 @@ export default function KneeAngleCanvas() {
                         strokeWidth={2}
                       />
                     )}
+
+                    {/* Arcos y etiquetas de ángulo, dibujados directamente sobre la radiografía */}
+                    {[
+                      { arc: ldfaArc, value: angles?.LDFA, key: 'LDFA', rangeKey: 'LDFA', color: COLORS.femur },
+                      { arc: mptaArc, value: angles?.MPTA, key: 'MPTA', rangeKey: 'MPTA', color: COLORS.tibia },
+                      {
+                        arc: tfArc,
+                        value: angles?.tibiofemoralAnatomic,
+                        key: 'Ángulo TF',
+                        rangeKey: 'tibiofemoralAnatomic',
+                        color: COLORS.articular,
+                      },
+                    ].map(({ arc, value, key, rangeKey, color }) => {
+                      if (!arc || value == null) return null;
+                      const labelText = `${key} = ${value}°\n(${NORMAL_RANGES[rangeKey]})`;
+                      // Estimación simple del tamaño del fondo según longitud del texto
+                      const lines = labelText.split('\n');
+                      const longestLine = Math.max(...lines.map((l) => l.length));
+                      const boxWidth = longestLine * 7.2 + 12;
+                      const boxHeight = lines.length * 16 + 8;
+                      return (
+                        <Group key={key}>
+                          <Line
+                            points={arc.points.flatMap((p) => [p.x, p.y])}
+                            stroke={color}
+                            strokeWidth={2.5}
+                            lineCap="round"
+                            lineJoin="round"
+                          />
+                          <Rect
+                            x={arc.labelPoint.x - boxWidth / 2}
+                            y={arc.labelPoint.y - boxHeight / 2 - 2}
+                            width={boxWidth}
+                            height={boxHeight}
+                            fill="#0b0e12"
+                            opacity={0.78}
+                            cornerRadius={4}
+                            stroke={color}
+                            strokeWidth={1}
+                          />
+                          <Text
+                            x={arc.labelPoint.x}
+                            y={arc.labelPoint.y}
+                            text={labelText}
+                            fontSize={13}
+                            fontFamily="'IBM Plex Mono', monospace"
+                            fontStyle="600"
+                            fill="#ffffff"
+                            align="center"
+                            offsetX={boxWidth / 2 - 6}
+                            offsetY={boxHeight / 2 - 4}
+                          />
+                        </Group>
+                      );
+                    })}
 
                     {/* Puntos arrastrables, por cada step ya con datos */}
                     {STEPS.map((step) =>

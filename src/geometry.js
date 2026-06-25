@@ -144,3 +144,64 @@ export function computeKneeAngles({ femurAxis, femurArticular, tibiaAxis, tibiaA
 function round1(n) {
   return Math.round(n * 10) / 10;
 }
+
+/**
+ * Dado un vértice y dos puntos que definen dos rayos desde ese vértice,
+ * genera los puntos de un arco circular (de radio `radius`) que va desde
+ * el rayo 1 hasta el rayo 2, recorriendo el camino más corto (≤180°).
+ *
+ * Se usa para dibujar visualmente el ángulo sobre la imagen, igual que
+ * el arco que muestran los softwares de planificación ortopédica.
+ *
+ * @param vertex   {x,y} punto donde se cruzan ambas líneas
+ * @param rayPoint1 {x,y} cualquier punto sobre el primer rayo (ej. el centro del círculo proximal)
+ * @param rayPoint2 {x,y} cualquier punto sobre el segundo rayo
+ * @param radius   radio del arco en píxeles (ajustable según el zoom/tamaño de imagen)
+ * @param steps    cantidad de segmentos para aproximar el arco (más = más suave)
+ * @returns { points: [{x,y}, ...], labelPoint: {x,y} }
+ *   points: lista ordenada de puntos del arco, lista para dibujar como polilínea
+ *   labelPoint: punto sugerido para ubicar la etiqueta de texto (en la bisectriz,
+ *               un poco más lejos del vértice que el arco)
+ */
+export function angleArcPoints(vertex, rayPoint1, rayPoint2, radius = 40, steps = 24) {
+  const a1 = vectorAngleDeg(rayPoint1.x - vertex.x, rayPoint1.y - vertex.y);
+  const a2 = vectorAngleDeg(rayPoint2.x - vertex.x, rayPoint2.y - vertex.y);
+
+  // Elegimos el sentido de recorrido (horario o antihorario) que da el arco
+  // más corto, para no dibujar accidentalmente el ángulo de 360-θ.
+  let delta = a2 - a1;
+  while (delta <= -180) delta += 360;
+  while (delta > 180) delta -= 360;
+
+  const points = [];
+  for (let i = 0; i <= steps; i++) {
+    const t = a1 + (delta * i) / steps;
+    const rad = (t * Math.PI) / 180;
+    points.push({
+      x: vertex.x + radius * Math.cos(rad),
+      y: vertex.y + radius * Math.sin(rad),
+    });
+  }
+
+  // Punto de etiqueta: en la bisectriz angular, un poco más lejos que el arco
+  const bisectorDeg = a1 + delta / 2;
+  const bisectorRad = (bisectorDeg * Math.PI) / 180;
+  const labelRadius = radius + 22;
+  const labelPoint = {
+    x: vertex.x + labelRadius * Math.cos(bisectorRad),
+    y: vertex.y + labelRadius * Math.sin(bisectorRad),
+  };
+
+  return { points, labelPoint };
+}
+
+/**
+ * Rangos de referencia clínica "normal" para cada ángulo, usados solo para
+ * mostrar el texto auxiliar entre paréntesis (ej. "(85-90°)"). No se usan
+ * para ningún cálculo, son puramente informativos/orientativos.
+ */
+export const NORMAL_RANGES = {
+  LDFA: '85–90°',
+  MPTA: '85–90°',
+  tibiofemoralAnatomic: '177–183°',
+};
